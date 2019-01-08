@@ -65,7 +65,7 @@ namespace rtrt
 
     sky_color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 
-    model.LoadFromFile("./Sponza/glTF/Sponza.gltf");
+    model.LoadFromFile("./models/Sponza/glTF/Sponza.gltf");
     //model.LoadFromFile("./models/CornellBox/CornellBox-Sphere.obj");
   }
 
