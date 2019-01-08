@@ -2,6 +2,10 @@ cmake_minimum_required (VERSION 3.12)
 
 project("rtrt" CXX)
 
+if (NOT EXISTS "${CMAKE_SOURCE_DIR}/models/" OR NOT EXISTS "${CMAKE_SOURCE_DIR}/deps/" OR NOT EXISTS "${CMAKE_SOURCE_DIR}/tools/")
+  message(FATAL_ERROR "Please make sure to download & unpack the dependencies at this link: http://dependencies.rikoophorst.com/dxr-path-tracing/dxr-path-tracing.zip")
+endif()
+
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "deps/cmake")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
