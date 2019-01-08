@@ -1,0 +1,83 @@
+#pragma once
+
+#define NOMINMAX
+
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <vector>
+#include <map>
+#include <unordered_map>
+#include <algorithm>
+#include <locale>
+#include <codecvt>
+#include <experimental/filesystem>
+#include <iomanip>
+#include <functional>
+#include <queue>
+
+#include <dxgi1_6.h>
+#include <d3d12_1.h>
+#include <D3D12RaytracingFallback.h>
+#include <D3D12RaytracingHelpers.hpp>
+#include <d3dx12.h>
+#include <dxgidebug.h>
+#include <d3dcompiler.h>
+
+#include <DirectXMath.h>
+#include <DirectXCollision.h>
+#include <DirectXColors.h>
+#include <DirectXPackedVector.h>
+
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3.h>
+#include <GLFW/glfw3native.h>
+
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#include <assimp/version.h>
+
+#include <wrl/event.h>
+
+#define LOG(str) { printf(str); OutputDebugStringA(str); }
+#define LOGW(wstr) { wprintf_s(wstr); OutputDebugStringW(wstr); }
+#define BREAK(str) { LOG(str); DebugBreak(); }
+#define BREAKW(wstr) { LOGW(wstr); DebugBreak(); }
+
+#define RELEASE_SAFE(ptr) { if (ptr != nullptr) { ptr->Release(); ptr = nullptr; } }
+#define RELEASE_EXPLICIT(ptr) { if (ptr != nullptr) { ptr->Release(); ptr = nullptr; } else { BREAK("Explicit release on object which has not been initialized."); } }
+#define RELEASE RELEASE_SAFE
+
+#define DELETE_SAFE(ptr) { if (ptr != nullptr) { delete ptr; ptr = nullptr; } }
+#define DELETE_EXPLICIT(ptr) { if (ptr != nullptr) { delete ptr; ptr = nullptr; } else { BREAK("Explicit delete on pointer which has not been initialized."); } }
+#undef DELETE
+#define DELETE DELETE_SAFE
+
+#define SIZEOF_IN_UINT32(obj) ((sizeof(obj) - 1) / sizeof(UINT32) + 1)
+
+inline void ThrowIfFailed(HRESULT hr, const char* msg = nullptr)
+{
+  if (FAILED(hr))
+  {
+    if (msg != nullptr)
+    {
+      LOG(msg);
+    }
+
+    DebugBreak();
+  }
+}
+
+inline void ThrowIfFalse(bool r, const char* msg = nullptr)
+{
+  if (r == false)
+  {
+    if (msg != nullptr)
+    {
+      LOG(msg);
+    }
+
+    DebugBreak();
+  }
+}

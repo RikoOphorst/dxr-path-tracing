@@ -1,0 +1,9 @@
+bin
+deps
+models
+tools
+.vscode
+
+*.exe
+*.suo
+*.sln
