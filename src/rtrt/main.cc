@@ -883,52 +883,53 @@ int main(int argc, char** argv)
       device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
       device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_normals, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
       device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_albedo, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
-
+      
       device.ExecuteCommandLists();
       device.WaitForGPU();
       device.PrepareCommandLists();
-
+      
       float* noisy_pixels = reinterpret_cast<float*>(averager_buffer_readback->Map());
       float* noisy_normals = reinterpret_cast<float*>(averager_normals_readback->Map());
       float* noisy_albedo = reinterpret_cast<float*>(averager_albedo_readback->Map());
       unsigned char* denoised_pixels = new unsigned char[1280 * 720 * 4];
-
+      
       try
       {
         float* input = static_cast<float*>(optix_input->map());
         memcpy(input, noisy_pixels, sizeof(float) * 1280 * 720 * 4);
         optix_input->unmap();
-
+      
         float* normals = static_cast<float*>(optix_normals->map());
         memcpy(normals, noisy_normals, sizeof(float) * 1280 * 720 * 4);
         optix_normals->unmap();
-
+      
         float* albedo = static_cast<float*>(optix_albedo->map());
         memcpy(albedo, noisy_albedo, sizeof(float) * 1280 * 720 * 4);
         optix_albedo->unmap();
-
+      
         optix_list->execute();
-
+      
         float* denoised_output = static_cast<float*>(optix_output->map());
-
+      
         for (int i = 0; i < 1280 * 720 * 4; i++)
         {
           denoised_pixels[i] = static_cast<unsigned char>(denoised_output[i] * 255);
         }
-
+      
         optix_output->unmap();
       }
       catch (optix::Exception e)
       {
         std::cout << e.getErrorString() << std::endl;
       }
-
+      
       averager_buffer_readback->Unmap();
       averager_normals_readback->Unmap();
       averager_albedo_readback->Unmap();
 
       TextureLoader::UploadTexture(device.device, device.command_queue, denoised_pixels, 1280, 720, &device.back_buffers[device.back_buffer_index]);
       device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(device.back_buffers[device.back_buffer_index], D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_RENDER_TARGET));
+      delete denoised_pixels;
     }
 
     // Render imgui
