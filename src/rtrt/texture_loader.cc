@@ -120,5 +120,6 @@ namespace rtrt
     );
 
     UploadTexture(device, queue, pixel_data, width, height, out_texture);
+    STBI_FREE(pixel_data);
   }
 }

@@ -166,6 +166,14 @@ void ColorHit(inout ColorPayload payload, in TriangleAttributes attr)
       payload.color = ShootColorRay(hit.position, normalize(refracted), 0.001f, scene_constants.gi_bounce_distance, payload.seed, payload.depth + 1);
     }
   }
+  else if (hit.shading_model == 8)
+  {
+    float3 reflection_direction = reflect(WorldRayDirection(), hit.normal);
+
+    reflection_direction += RandomPointInUnitSphere(payload.seed) * hit.glossiness;
+
+    payload.color = ShootColorRay(hit.position, normalize(reflection_direction), 0.001f, scene_constants.gi_bounce_distance, payload.seed, payload.depth + 1);
+  }
   else if (hit.shading_model == 9) 
   {
     payload.color = hit.emissive;
@@ -194,7 +202,19 @@ void GeometryHit(inout GeometryPayload payload, in TriangleAttributes attr)
   ShadingData hit = GetShadingData(attr);
 
   payload.normal = hit.normal;
-  payload.albedo = hit.diffuse;
+
+  if (hit.shading_model == 9)
+  {
+    payload.albedo = hit.emissive;
+  }
+  else if (hit.shading_model == 8)
+  {
+    payload.albedo = float3(0.0f, 0.0f, 0.0f);
+  }
+  else
+  {
+    payload.albedo = hit.diffuse;
+  }
 }
 
 //------------------------------------------------------------------------------------------------------

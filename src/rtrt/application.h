@@ -62,6 +62,8 @@ namespace rtrt
   public:
     bool freeze_rendering;
     int freeze_at_sample;
+    int denoise_at_sample;
+    bool denoised;
     
     UINT frame_count;
     UINT sample_count;

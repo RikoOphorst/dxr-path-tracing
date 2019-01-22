@@ -87,6 +87,7 @@ struct Material
   UINT normal_map;
   float index_of_refraction;
   UINT shading_model;
+  float glossiness;
 };
 
 struct SceneConstantBuffer

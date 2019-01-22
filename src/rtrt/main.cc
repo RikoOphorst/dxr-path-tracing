@@ -1,4 +1,5 @@
 #include <iostream>
+#include <thread>
 #include <optix_world.h>
 
 #include "application.h"
@@ -71,8 +72,14 @@ union AlignedAveragerConstantBuffer
   uint8_t alignment_padding[D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT];
 };
 
+void MessageBoxThreadFunc()
+{
+  MessageBox(NULL, "Please be patient, initialization can take a long time.", "Loading..", MB_OK | MB_SYSTEMMODAL);
+}
+
 int main(int argc, char** argv)
 {
+  std::thread message_box_thread(MessageBoxThreadFunc);
   ID3D12RootSignature* global_root_signature = nullptr;
   ID3D12RaytracingFallbackStateObject* pso = nullptr;
 
@@ -149,6 +156,7 @@ int main(int argc, char** argv)
   optix::Buffer optix_output;
   optix::CommandList optix_list;
   optix::PostprocessingStage optix_denoiser_stage;
+  unsigned char* denoised_pixels = new unsigned char[1280 * 720 * 4];
 
   // App
   {
@@ -679,6 +687,24 @@ int main(int argc, char** argv)
     device.PrepareCommandLists();
     imgui_layer.NewFrame();
 
+    // Scene constants
+    {
+      DirectX::XMMATRIX view_projection = app.camera->GetViewMatrix() * app.camera->GetProjectionMatrix();
+      constant_buffer_data[device.back_buffer_index].projection_to_world = DirectX::XMMatrixInverse(nullptr, view_projection);
+      constant_buffer_data[device.back_buffer_index].camera_position = DirectX::XMFLOAT4(app.camera->GetPosition().x, app.camera->GetPosition().y, app.camera->GetPosition().z, 1.0f);
+      constant_buffer_data[device.back_buffer_index].frame_count = app.frame_count;
+      constant_buffer_data[device.back_buffer_index].lens_diameter = app.lens.lens_diameter;
+      constant_buffer_data[device.back_buffer_index].gi_num_bounces = app.gi.num_bounces;
+      constant_buffer_data[device.back_buffer_index].gi_bounce_distance = app.gi.bounce_distance;
+      constant_buffer_data[device.back_buffer_index].aa_enabled = app.aa.enabled ? 1 : 0;
+      constant_buffer_data[device.back_buffer_index].aa_algorithm = static_cast<UINT>(app.aa.algorithm);
+      constant_buffer_data[device.back_buffer_index].aa_sampling_point = app.aa.sample_point;
+      constant_buffer_data[device.back_buffer_index].sky_color = app.sky_color;
+      constant_buffer_data[device.back_buffer_index].picking_point = DirectX::XMINT2(static_cast<int>(std::min(std::max(app.current_cursor_position.x, 0.0f), 1280.0f)), static_cast<int>(std::min(std::max(app.current_cursor_position.y, 0.0f), 720.0f)));
+
+      scene_constants_buffer->Write(sizeof(SceneConstantBuffer), &(constant_buffer_data[device.back_buffer_index]), sizeof(AlignedSceneConstantBuffer) * device.back_buffer_index);
+    }
+
     // Picking rays
     {
       device.command_list->SetComputeRootSignature(global_root_signature);
@@ -764,6 +790,7 @@ int main(int argc, char** argv)
         materials[i].normal_map = app.model.materials[i].normal_map;
         materials[i].index_of_refraction = app.model.materials[i].index_of_refraction;
         materials[i].shading_model = app.model.materials[i].shading_model;
+        materials[i].glossiness = app.model.materials[i].glossiness;
       }
 
 
@@ -774,25 +801,10 @@ int main(int argc, char** argv)
 
     device.PrepareCommandLists();
 
-    if (app.sample_count < 100)
+    if (app.denoise_at_sample > 0 && static_cast<int>(app.sample_count) < app.denoise_at_sample)
     {
       if (!app.freeze_rendering)
       {
-        DirectX::XMMATRIX view_projection = app.camera->GetViewMatrix() * app.camera->GetProjectionMatrix();
-        constant_buffer_data[device.back_buffer_index].projection_to_world = DirectX::XMMatrixInverse(nullptr, view_projection);
-        constant_buffer_data[device.back_buffer_index].camera_position = DirectX::XMFLOAT4(app.camera->GetPosition().x, app.camera->GetPosition().y, app.camera->GetPosition().z, 1.0f);
-        constant_buffer_data[device.back_buffer_index].frame_count = app.frame_count;
-        constant_buffer_data[device.back_buffer_index].lens_diameter = app.lens.lens_diameter;
-        constant_buffer_data[device.back_buffer_index].gi_num_bounces = app.gi.num_bounces;
-        constant_buffer_data[device.back_buffer_index].gi_bounce_distance = app.gi.bounce_distance;
-        constant_buffer_data[device.back_buffer_index].aa_enabled = app.aa.enabled ? 1 : 0;
-        constant_buffer_data[device.back_buffer_index].aa_algorithm = static_cast<UINT>(app.aa.algorithm);
-        constant_buffer_data[device.back_buffer_index].aa_sampling_point = app.aa.sample_point;
-        constant_buffer_data[device.back_buffer_index].sky_color = app.sky_color;
-        constant_buffer_data[device.back_buffer_index].picking_point = DirectX::XMINT2(static_cast<int>(std::min(std::max(app.current_cursor_position.x, 0.0f), 1280.0f)), static_cast<int>(std::min(std::max(app.current_cursor_position.y, 0.0f), 720.0f)));
-
-        scene_constants_buffer->Write(sizeof(SceneConstantBuffer), &(constant_buffer_data[device.back_buffer_index]), sizeof(AlignedSceneConstantBuffer) * device.back_buffer_index);
-
         // Resource binding for pathtracing
         {
           device.command_list->SetComputeRootSignature(global_root_signature);
@@ -872,64 +884,75 @@ int main(int argc, char** argv)
     }
     else
     {
-      device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(device.back_buffers[device.back_buffer_index], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST));
-
-      device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE));
-      device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_normals, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE));
-      device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_albedo, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE));
-      device.command_list->CopyResource(averager_buffer_readback->GetBuffer(), averager_buffer);
-      device.command_list->CopyResource(averager_normals_readback->GetBuffer(), averager_normals);
-      device.command_list->CopyResource(averager_albedo_readback->GetBuffer(), averager_albedo);
-      device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
-      device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_normals, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
-      device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_albedo, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
-      
-      device.ExecuteCommandLists();
-      device.WaitForGPU();
-      device.PrepareCommandLists();
-      
-      float* noisy_pixels = reinterpret_cast<float*>(averager_buffer_readback->Map());
-      float* noisy_normals = reinterpret_cast<float*>(averager_normals_readback->Map());
-      float* noisy_albedo = reinterpret_cast<float*>(averager_albedo_readback->Map());
-      unsigned char* denoised_pixels = new unsigned char[1280 * 720 * 4];
-      
-      try
+      if (!app.denoised)
       {
-        float* input = static_cast<float*>(optix_input->map());
-        memcpy(input, noisy_pixels, sizeof(float) * 1280 * 720 * 4);
-        optix_input->unmap();
-      
-        float* normals = static_cast<float*>(optix_normals->map());
-        memcpy(normals, noisy_normals, sizeof(float) * 1280 * 720 * 4);
-        optix_normals->unmap();
-      
-        float* albedo = static_cast<float*>(optix_albedo->map());
-        memcpy(albedo, noisy_albedo, sizeof(float) * 1280 * 720 * 4);
-        optix_albedo->unmap();
-      
-        optix_list->execute();
-      
-        float* denoised_output = static_cast<float*>(optix_output->map());
-      
-        for (int i = 0; i < 1280 * 720 * 4; i++)
+        device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(device.back_buffers[device.back_buffer_index], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST));
+
+        device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE));
+        device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_normals, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE));
+        device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_albedo, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE));
+        device.command_list->CopyResource(averager_buffer_readback->GetBuffer(), averager_buffer);
+        device.command_list->CopyResource(averager_normals_readback->GetBuffer(), averager_normals);
+        device.command_list->CopyResource(averager_albedo_readback->GetBuffer(), averager_albedo);
+        device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+        device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_normals, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+        device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(averager_albedo, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+
+        device.ExecuteCommandLists();
+        device.WaitForGPU();
+        device.PrepareCommandLists();
+
+        float* noisy_pixels = reinterpret_cast<float*>(averager_buffer_readback->Map());
+        float* noisy_normals = reinterpret_cast<float*>(averager_normals_readback->Map());
+        float* noisy_albedo = reinterpret_cast<float*>(averager_albedo_readback->Map());
+
+        try
         {
-          denoised_pixels[i] = static_cast<unsigned char>(denoised_output[i] * 255);
-        }
-      
-        optix_output->unmap();
-      }
-      catch (optix::Exception e)
-      {
-        std::cout << e.getErrorString() << std::endl;
-      }
-      
-      averager_buffer_readback->Unmap();
-      averager_normals_readback->Unmap();
-      averager_albedo_readback->Unmap();
+          float* input = static_cast<float*>(optix_input->map());
+          memcpy(input, noisy_pixels, sizeof(float) * 1280 * 720 * 4);
+          optix_input->unmap();
 
-      TextureLoader::UploadTexture(device.device, device.command_queue, denoised_pixels, 1280, 720, &device.back_buffers[device.back_buffer_index]);
-      device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(device.back_buffers[device.back_buffer_index], D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_RENDER_TARGET));
-      delete denoised_pixels;
+          float* normals = static_cast<float*>(optix_normals->map());
+          memcpy(normals, noisy_normals, sizeof(float) * 1280 * 720 * 4);
+          optix_normals->unmap();
+
+          float* albedo = static_cast<float*>(optix_albedo->map());
+          memcpy(albedo, noisy_albedo, sizeof(float) * 1280 * 720 * 4);
+          optix_albedo->unmap();
+
+          optix_list->execute();
+
+          float* denoised_output = static_cast<float*>(optix_output->map());
+
+          for (int i = 0; i < 1280 * 720 * 4; i++)
+          {
+            denoised_pixels[i] = static_cast<unsigned char>(denoised_output[i] * 255);
+          }
+
+          optix_output->unmap();
+        }
+        catch (optix::Exception e)
+        {
+          std::cout << e.getErrorString() << std::endl;
+        }
+
+        averager_buffer_readback->Unmap();
+        averager_normals_readback->Unmap();
+        averager_albedo_readback->Unmap();
+
+        TextureLoader::UploadTexture(device.device, device.command_queue, denoised_pixels, 1280, 720, &device.back_buffers[device.back_buffer_index]);
+        device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(device.back_buffers[device.back_buffer_index], D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_RENDER_TARGET));
+        app.denoised = true;
+      }
+      else
+      {
+        device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(device.back_buffers[device.back_buffer_index], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST));
+        device.ExecuteCommandLists();
+        device.WaitForGPU();
+        device.PrepareCommandLists();
+        TextureLoader::UploadTexture(device.device, device.command_queue, denoised_pixels, 1280, 720, &device.back_buffers[device.back_buffer_index]);
+        device.command_list->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(device.back_buffers[device.back_buffer_index], D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_RENDER_TARGET));
+      }
     }
 
     // Render imgui

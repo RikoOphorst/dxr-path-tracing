@@ -82,6 +82,7 @@ struct ShadingData
   float3 diffuse;
   float3 emissive;
   float index_of_refraction;
+  float glossiness;
 };
 
 inline float4 SampleTexture(in SamplerState samplr, in Texture2D tex, in float2 uv)
@@ -103,6 +104,7 @@ inline ShadingData GetShadingData(TriangleAttributes attr)
   data.diffuse = material.diffuse_map != MATERIAL_NO_TEXTURE_INDEX ? SampleTexture(scene_sampler, scene_textures[material.diffuse_map], vertex.uv).xyz : material.color_diffuse.xyz;
   data.emissive = material.emissive_map != MATERIAL_NO_TEXTURE_INDEX ? SampleTexture(scene_sampler, scene_textures[material.emissive_map], vertex.uv).xyz : material.color_emissive.xyz;
   data.index_of_refraction = material.index_of_refraction;
+  data.glossiness = material.glossiness;
 
   return data;
 }

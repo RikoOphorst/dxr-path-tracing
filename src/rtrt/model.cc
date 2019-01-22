@@ -250,6 +250,7 @@ namespace rtrt
       material.specular_map = MATERIAL_NO_TEXTURE_INDEX;
       material.specular_power_map = MATERIAL_NO_TEXTURE_INDEX;
       material.diffuse_map = MATERIAL_NO_TEXTURE_INDEX;
+      material.glossiness = 0.0f;
 
       for (int i = 0; i < aiTextureType_UNKNOWN; i++)
       {

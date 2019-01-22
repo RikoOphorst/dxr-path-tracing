@@ -26,6 +26,8 @@ namespace rtrt
 
     freeze_rendering = false;
     freeze_at_sample = -1;
+    denoise_at_sample = 100;
+    denoised = false;
     
     frame_count = 0;
     sample_count = 0;
@@ -43,8 +45,6 @@ namespace rtrt
     camera->SetFarPlane(1000.0f);
     camera->SetAperture(0.0f);
     camera->SetFovDegrees(70.0f);
-    camera->SetPosition(DirectX::XMFLOAT3(0.0f, 0.75f, 2.0f));
-    camera->SetRotation(DirectX::XMFLOAT3(0.0f, DirectX::XMConvertToRadians(180.0f), 0.0f));
 
     ao.ao_size = 50.0f;
     ao.num_samples = 2;
@@ -61,12 +61,12 @@ namespace rtrt
     pp.gamma = 2.2f;
 
     gi.bounce_distance = 10000.0f;
-    gi.num_bounces = 2;
+    gi.num_bounces = 4;
 
     sky_color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 
-    model.LoadFromFile("./models/Sponza/glTF/Sponza.gltf");
-    //model.LoadFromFile("./models/CornellBox/CornellBox-Sphere.obj");
+    //model.LoadFromFile("./models/Sponza/glTF/Sponza.gltf");
+    model.LoadFromFile("./models/CornellBox/CornellBox-Sphere.obj");
   }
 
   //------------------------------------------------------------------------------------------------------
@@ -78,6 +78,10 @@ namespace rtrt
     current_timestamp = static_cast<float>(glfwGetTime());
     delta_time = current_timestamp - previous_timestamp;
     previous_timestamp = current_timestamp;
+
+    double x, y;
+    glfwGetCursorPos(window, &x, &y);
+    current_cursor_position = { static_cast<float>(x), static_cast<float>(y) };
 
     if (!freeze_rendering)
     {
@@ -97,7 +101,7 @@ namespace rtrt
 
         if (glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS)
         {
-          speed *= 1000.0f;
+          speed *= 350.0f;
         }
 
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -124,10 +128,6 @@ namespace rtrt
           clear_samples = true;
         }
       }
-
-      double x, y;
-      glfwGetCursorPos(window, &x, &y);
-      current_cursor_position = { static_cast<float>(x), static_cast<float>(y) };
 
       if (!ImGui::GetIO().WantCaptureMouse)
       {
@@ -157,7 +157,7 @@ namespace rtrt
     }
 
     previous_cursor_position = current_cursor_position;
-    sample_count = freeze_rendering ? sample_count : sample_count + 1;
+    sample_count = freeze_rendering || (static_cast<int>(sample_count) >= denoise_at_sample) ? sample_count : sample_count + 1;
     frame_count = frame_count + 1;
 
     ImGui::SetNextWindowSize(ImVec2(400.0f, 720.0f), ImGuiSetCond_Always);
@@ -166,13 +166,30 @@ namespace rtrt
     
     // Stats
     {
-      ImGui::BeginChild("Stats", ImVec2(380, 120), true);
+      ImGui::BeginChild("Stats", ImVec2(380, 165), true);
       ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.0f, 1.0f), "Lens");
 
       ImGui::LabelText("Frame time", "%.2f ms", delta_time * 1000);
       ImGui::LabelText("Sample count", "%d", sample_count);
-      ImGui::InputInt("Freeze at sample #", &freeze_at_sample, 1, 100);
+      clear_samples = ImGui::InputInt("Freeze at sample #", &freeze_at_sample, 1, 100) ? true : clear_samples;
       ImGui::Checkbox("Freeze rendering", &freeze_rendering);
+      clear_samples = ImGui::InputInt("Denoise at sample #", &denoise_at_sample, 1, 100) ? true : clear_samples;
+      
+      if (!denoised)
+      {
+        if (ImGui::Button("Denoise Now"))
+        {
+          denoise_at_sample = static_cast<int>(sample_count);
+        }
+      }
+      else
+      {
+        if (ImGui::Button("Continue"))
+        {
+          denoise_at_sample *= 2;
+          denoised = false;
+        }
+      }
 
       ImGui::EndChild();
     }
@@ -183,7 +200,7 @@ namespace rtrt
 
       ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.0f, 1.0f), "Lens");
 
-      clear_samples = ImGui::InputFloat("Lens Diameter", &lens.lens_diameter, 0.1f, 5.0f, 1) ? true : clear_samples;
+      clear_samples = ImGui::InputFloat("Lens Diameter", &lens.lens_diameter, 0.01f, 5.0f, 3) ? true : clear_samples;
       lens.lens_diameter = std::max(lens.lens_diameter, 0.0f);
 
       clear_samples = ImGui::InputFloat("Focal Length", &lens.focal_length, 0.25f, 50.0f, 2) ? true : clear_samples;
@@ -247,7 +264,7 @@ namespace rtrt
 
     // Material editing
     {
-      ImGui::BeginChild("Material", ImVec2(380, 125), true);
+      ImGui::BeginChild("Material", ImVec2(380, 145), true);
 
       ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.0f, 1.0f), "Material Editing");
 
@@ -264,6 +281,7 @@ namespace rtrt
         materials_dirty = ImGui::ColorEdit4("Emissive", &model.materials[selected_material].color_emissive.x) ? true : materials_dirty;
         materials_dirty = ImGui::ColorEdit4("Diffuse", &model.materials[selected_material].color_diffuse.x) ? true : materials_dirty;
         materials_dirty = ImGui::InputFloat("Index of Refraction", &model.materials[selected_material].index_of_refraction, 0.025f, 0.1f, 3) ? true : materials_dirty;
+        materials_dirty = ImGui::InputFloat("Roughness", &model.materials[selected_material].glossiness, 0.01f, 0.1f, 3) ? true : materials_dirty;
       }
 
       ImGui::EndChild();
@@ -279,6 +297,11 @@ namespace rtrt
     if (clear_samples)
     {
       sample_count = 0;
+    }
+
+    if (static_cast<int>(sample_count) < denoise_at_sample)
+    {
+      denoised = false;
     }
 
     DirectX::XMFLOAT2 sampling_points[31] = {
